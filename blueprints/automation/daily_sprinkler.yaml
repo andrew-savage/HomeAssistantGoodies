@@ -1,0 +1,206 @@
+blueprint:
+  name: Daily Sprinkler (forecast-based)
+  description: >-
+    Runs a sprinkler once a day for a duration set by today's forecast
+    maximum temperature. Skips if enough rain has already fallen, if rain
+    is forecast, if it's too cool, or if any sensor is unavailable.
+    Writes what happened ("Ran ..." / "Skipped ...") to a text helper
+    for a dashboard banner.
+
+
+    The run script must accept a `seconds` field (see the repo README for an
+    example that sends the duration to the valve over MQTT).
+  domain: automation
+  author: Andrew
+  source_url: https://github.com/andrew-savage/HomeAssistantGoodies/blob/main/blueprints/automation/daily_sprinkler.yaml
+  input:
+    schedule:
+      name: Schedule
+      icon: mdi:clock-outline
+      input:
+        run_time:
+          name: Run time
+          description: Victorian rules allow watering systems 6pm–10am only.
+          default: "06:00:00"
+          selector:
+            time: {}
+    sensors:
+      name: Sensors
+      icon: mdi:weather-partly-rainy
+      input:
+        forecast_max_sensor:
+          name: Forecast max temperature
+          description: Today's forecast maximum (e.g. BOM temp_max_0).
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        forecast_rain_sensor:
+          name: Forecast rain amount
+          description: Today's forecast rain in mm (e.g. BOM rain_amount_max_0).
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        observed_rain_sensor:
+          name: Observed rain
+          description: >-
+            Rain already fallen in mm. A 24-hour or rain-event sensor is
+            better than daily rain, which resets at midnight.
+          selector:
+            entity:
+              filter:
+                domain: sensor
+    rain_thresholds:
+      name: Rain thresholds
+      icon: mdi:water
+      collapsed: true
+      input:
+        observed_rain_limit:
+          name: Skip if observed rain is at least
+          default: 0.8
+          selector:
+            number:
+              min: 0
+              max: 20
+              step: 0.1
+              unit_of_measurement: mm
+              mode: box
+        forecast_rain_limit:
+          name: Skip if forecast rain is at least
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 20
+              step: 0.1
+              unit_of_measurement: mm
+              mode: box
+    duration_bands:
+      name: Duration bands
+      description: Each band applies from its temperature upward until the next band.
+      icon: mdi:thermometer
+      collapsed: true
+      input:
+        temp_band_1:
+          name: Band 1 starts at
+          default: 20
+          selector:
+            number: {min: 0, max: 50, unit_of_measurement: "°C", mode: box}
+        minutes_band_1:
+          name: Band 1 minutes
+          default: 5
+          selector:
+            number: {min: 1, max: 60, unit_of_measurement: min, mode: box}
+        temp_band_2:
+          name: Band 2 starts at
+          default: 25
+          selector:
+            number: {min: 0, max: 50, unit_of_measurement: "°C", mode: box}
+        minutes_band_2:
+          name: Band 2 minutes
+          default: 10
+          selector:
+            number: {min: 1, max: 60, unit_of_measurement: min, mode: box}
+        temp_band_3:
+          name: Band 3 starts at
+          default: 30
+          selector:
+            number: {min: 0, max: 50, unit_of_measurement: "°C", mode: box}
+        minutes_band_3:
+          name: Band 3 minutes
+          default: 15
+          selector:
+            number: {min: 1, max: 60, unit_of_measurement: min, mode: box}
+        temp_band_4:
+          name: Band 4 starts at
+          default: 35
+          selector:
+            number: {min: 0, max: 50, unit_of_measurement: "°C", mode: box}
+        minutes_band_4:
+          name: Band 4 minutes
+          default: 20
+          selector:
+            number: {min: 1, max: 60, unit_of_measurement: min, mode: box}
+    outputs:
+      name: Sprinkler and status
+      icon: mdi:sprinkler-variant
+      input:
+        run_script:
+          name: Run script
+          description: Script that opens the valve; receives a `seconds` field.
+          selector:
+            entity:
+              filter:
+                domain: script
+        status_helper:
+          name: Status text helper
+          description: Text helper (max length 255) that the dashboard banner reads.
+          selector:
+            entity:
+              filter:
+                domain: input_text
+
+triggers:
+  - trigger: time
+    at: !input run_time
+
+variables:
+  forecast_max_entity: !input forecast_max_sensor
+  forecast_rain_entity: !input forecast_rain_sensor
+  observed_rain_entity: !input observed_rain_sensor
+  observed_limit: !input observed_rain_limit
+  forecast_limit: !input forecast_rain_limit
+  t1: !input temp_band_1
+  t2: !input temp_band_2
+  t3: !input temp_band_3
+  t4: !input temp_band_4
+  m1: !input minutes_band_1
+  m2: !input minutes_band_2
+  m3: !input minutes_band_3
+  m4: !input minutes_band_4
+  forecast_max: "{{ states(forecast_max_entity) | float(-99) }}"
+  forecast_rain: "{{ states(forecast_rain_entity) | float(-1) }}"
+  observed_rain: "{{ states(observed_rain_entity) | float(-1) }}"
+  minutes: >-
+    {%- if forecast_max >= t4 | float -%}{{ m4 | int }}
+    {%- elif forecast_max >= t3 | float -%}{{ m3 | int }}
+    {%- elif forecast_max >= t2 | float -%}{{ m2 | int }}
+    {%- elif forecast_max >= t1 | float -%}{{ m1 | int }}
+    {%- else -%}0
+    {%- endif -%}
+  skip_reason: >-
+    {%- if forecast_max == -99 -%}Forecast max unavailable
+    {%- elif forecast_rain == -1 -%}Rain forecast unavailable
+    {%- elif observed_rain == -1 -%}Rain sensor unavailable
+    {%- elif observed_rain >= observed_limit | float -%}{{ observed_rain }} mm already fell
+    {%- elif forecast_rain >= forecast_limit | float -%}{{ forecast_rain }} mm forecast today
+    {%- elif minutes | int == 0 -%}Forecast max {{ forecast_max | int }}°C, below {{ t1 | int }}°C
+    {%- endif -%}
+
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ skip_reason | length > 0 }}"
+    then:
+      - action: input_text.set_value
+        target:
+          entity_id: !input status_helper
+        data:
+          value: "Skipped {{ now().strftime('%a %-d %b') }}: {{ skip_reason }}"
+      - stop: Skipped
+  - action: script.turn_on
+    target:
+      entity_id: !input run_script
+    data:
+      variables:
+        seconds: "{{ minutes | int * 60 }}"
+  - action: input_text.set_value
+    target:
+      entity_id: !input status_helper
+    data:
+      value: >-
+        Ran {{ now().strftime('%a %-d %b, %H:%M') }} for {{ minutes }} min
+        (forecast {{ forecast_max | int }}°C)
+
+mode: single

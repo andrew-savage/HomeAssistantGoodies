@@ -1,0 +1,7 @@
+# Dashboard banner for the Daily Sprinkler blueprint.
+# Green when it ran, blue when it skipped.
+# Add via: Edit dashboard > Add card > Manual, then paste.
+type: markdown
+content: >
+  <ha-alert alert-type="{{ 'success' if states('input_text.sprinkler_last_run').startswith('Ran') else 'info' }}"
+  title="Sprinkler">{{ states('input_text.sprinkler_last_run') }}</ha-alert>

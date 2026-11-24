@@ -1,0 +1,27 @@
+# Script: sprinkler_run
+# Opens the sprinkler valve for a set number of seconds. The timer runs on
+# the Zigbee outlet itself, so the valve still closes if Home Assistant
+# restarts mid-run.
+#
+# Install: Settings > Automations & scenes > Scripts > Create script >
+# Edit in YAML, paste this, and save with the entity ID script.sprinkler_run.
+#
+# CHANGE: copy the topic and payload from your existing fixed-duration
+# script and replace the hard-coded seconds with {{ seconds | int }}.
+alias: Sprinkler run
+fields:
+  seconds:
+    description: How long the valve stays open (handled on the device)
+    example: 600
+    required: true
+    selector:
+      number:
+        min: 60
+        max: 1800
+        unit_of_measurement: s
+sequence:
+  - action: mqtt.publish
+    data:
+      topic: CHANGE/your/valve/set
+      payload: '{"state": "ON", "on_time": {{ seconds | int }}}'
+mode: single
