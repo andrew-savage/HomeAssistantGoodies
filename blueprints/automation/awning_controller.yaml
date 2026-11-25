@@ -1,0 +1,570 @@
+blueprint:
+  name: Awning Controller (sun prompt + safety close)
+  description: >-
+    One automation for a one-way (RF/Bond) awning.
+
+
+    **Sun prompt.** When the sun moves into your balcony's azimuth window and
+    UV is in range, it asks on your phones whether to open the awning fully,
+    halfway, or keep it closed. Any one phone can answer. If nobody answers in
+    time it does your chosen timeout action. It only asks once a day and
+    won't open into wind or rain.
+
+
+    **Safety close.** Closes (retracts) the awning on sustained wind, gusts or
+    heavy rain, and at sunset, but only if it's marked as out. Safety closes
+    always run, whatever your extra conditions say.
+
+
+    **State tracking.** One-way awnings can't report position, so it keeps
+    "full" and "halfway" input_booleans up to date itself, and clears them
+    when your chosen cover entity reports the retracted state.
+
+
+    "Open" here means extended (shade). "Close" means retracted.
+  domain: automation
+  author: Andrew
+  source_url: https://github.com/andrew-savage/HomeAssistantGoodies/blob/main/blueprints/automation/awning_controller.yaml
+  input:
+    awning:
+      name: Awning
+      icon: mdi:awning-outline
+      input:
+        awning_cover:
+          name: Awning cover
+          description: The cover entity the commands are sent to.
+          selector:
+            entity:
+              filter:
+                domain: cover
+        invert_commands:
+          name: Invert open/close
+          description: >-
+            Turn on if `cover.open_cover` retracts your awning. Off means
+            open_cover extends it and close_cover retracts it.
+          default: false
+          selector:
+            boolean: {}
+        halfway_seconds:
+          name: Halfway travel time
+          description: Seconds to run the extend command before sending stop.
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 120
+              unit_of_measurement: s
+              mode: box
+        retracted_entity:
+          name: Retracted detection entity
+          description: >-
+            A cover whose state changes when the awning retracts (from HA,
+            the Bond app, etc.). Can be the same cover as above.
+          selector:
+            entity:
+              filter:
+                domain: cover
+        retracted_state:
+          name: Retracted state
+          description: The state that entity shows when the awning is retracted.
+          default: closed
+          selector:
+            select:
+              options:
+                - closed
+                - open
+    helpers:
+      name: Helpers
+      icon: mdi:toggle-switch-outline
+      input:
+        full_helper:
+          name: Awning full helper
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+        half_helper:
+          name: Awning halfway helper
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+        prompted_helper:
+          name: Prompted today helper
+          description: Turned on when the sun prompt runs, reset at midnight.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+        notify_toggle:
+          name: Notifications enabled
+          description: >-
+            Off mutes every awning notification. Safety closes still run.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+    sun:
+      name: Sun and UV
+      icon: mdi:weather-sunny
+      input:
+        azimuth_sensor:
+          name: Sun azimuth sensor
+          description: e.g. sensor.sun_solar_azimuth (0 = north, 90 = east).
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        window_start:
+          name: Sun window start
+          description: >-
+            Azimuth where sun starts hitting the balcony, measured clockwise
+            to the end. The window can wrap past north, e.g. start 200, end 65.
+          default: 200
+          selector:
+            number:
+              min: 0
+              max: 360
+              unit_of_measurement: "°"
+              mode: box
+        window_end:
+          name: Sun window end
+          default: 65
+          selector:
+            number:
+              min: 0
+              max: 360
+              unit_of_measurement: "°"
+              mode: box
+        uv_sensor:
+          name: UV index sensor
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        uv_min:
+          name: Minimum UV
+          default: 6
+          selector:
+            number:
+              min: 0
+              max: 20
+              step: 0.5
+              mode: box
+        uv_max:
+          name: Maximum UV
+          description: Leave at 20 for no upper limit.
+          default: 20
+          selector:
+            number:
+              min: 0
+              max: 20
+              step: 0.5
+              mode: box
+        sun_hold_minutes:
+          name: Hold time
+          description: Sun and UV must both stay in range this long before asking.
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 60
+              unit_of_measurement: min
+              mode: box
+    safety:
+      name: Safety close
+      icon: mdi:weather-windy
+      input:
+        wind_sensor:
+          name: Wind speed sensor
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        wind_limit:
+          name: Close if wind speed above
+          default: 28
+          selector:
+            number:
+              min: 0
+              max: 150
+              mode: box
+        wind_minutes:
+          name: Wind speed hold time
+          default: 1
+          selector:
+            number:
+              min: 0
+              max: 30
+              unit_of_measurement: min
+              mode: box
+        gust_sensor:
+          name: Wind gust sensor
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        gust_limit:
+          name: Close if gust above
+          default: 32
+          selector:
+            number:
+              min: 0
+              max: 200
+              mode: box
+        gust_minutes:
+          name: Gust hold time
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 30
+              unit_of_measurement: min
+              mode: box
+        rain_sensor:
+          name: Rain rate sensor
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        rain_limit:
+          name: Close if rain rate above
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 0.1
+              mode: box
+        rain_minutes:
+          name: Rain hold time
+          default: 2
+          selector:
+            number:
+              min: 0
+              max: 30
+              unit_of_measurement: min
+              mode: box
+        close_at_sunset:
+          name: Close at sunset
+          default: true
+          selector:
+            boolean: {}
+    notify:
+      name: Notifications
+      icon: mdi:cellphone-message
+      input:
+        notify_service:
+          name: Notify action
+          description: e.g. notify.all_phones (a group) or notify.mobile_app_pixel.
+          default: notify.all_phones
+          selector:
+            text: {}
+        response_seconds:
+          name: Response time
+          default: 60
+          selector:
+            number:
+              min: 10
+              max: 600
+              unit_of_measurement: s
+              mode: box
+        timeout_action:
+          name: If nobody answers
+          default: full
+          selector:
+            select:
+              options:
+                - label: Open fully
+                  value: full
+                - label: Open halfway
+                  value: half
+                - label: Do nothing
+                  value: none
+        muted_action:
+          name: Sun prompt when notifications are off
+          default: none
+          selector:
+            select:
+              options:
+                - label: Skip it
+                  value: none
+                - label: Open fully without asking
+                  value: full
+                - label: Open halfway without asking
+                  value: half
+    extra:
+      name: Extra conditions
+      icon: mdi:filter-outline
+      collapsed: true
+      input:
+        extra_conditions:
+          name: Only prompt when
+          description: >-
+            Conditions that must all pass for the sun prompt, e.g. guest mode
+            off or alarm disarmed. Safety closes ignore these.
+          default: []
+          selector:
+            condition: {}
+
+mode: parallel
+max: 10
+max_exceeded: silent
+
+trigger_variables:
+  az_entity: !input azimuth_sensor
+  win_start: !input window_start
+  win_end: !input window_end
+  uv_entity: !input uv_sensor
+  uv_low: !input uv_min
+  uv_high: !input uv_max
+
+triggers:
+  - trigger: template
+    id: sun
+    value_template: >-
+      {% set az = states(az_entity) | float(-1) %}
+      {% set uv = states(uv_entity) | float(-1) %}
+      {% if az < 0 or uv < 0 %}
+        false
+      {% elif win_start <= win_end %}
+        {{ win_start <= az <= win_end and uv_low <= uv <= uv_high }}
+      {% else %}
+        {{ (az >= win_start or az <= win_end) and uv_low <= uv <= uv_high }}
+      {% endif %}
+    for:
+      minutes: !input sun_hold_minutes
+  - trigger: numeric_state
+    id: wind
+    entity_id: !input wind_sensor
+    above: !input wind_limit
+    for:
+      minutes: !input wind_minutes
+  - trigger: numeric_state
+    id: gust
+    entity_id: !input gust_sensor
+    above: !input gust_limit
+    for:
+      minutes: !input gust_minutes
+  - trigger: numeric_state
+    id: rain
+    entity_id: !input rain_sensor
+    above: !input rain_limit
+    for:
+      minutes: !input rain_minutes
+  - trigger: sun
+    id: sunset
+    event: sunset
+  - trigger: state
+    id: retracted
+    entity_id: !input retracted_entity
+    to: !input retracted_state
+  - trigger: time
+    id: midnight
+    at: "00:00:00"
+
+variables:
+  cover_entity: !input awning_cover
+  invert: !input invert_commands
+  extend_cmd: "{{ 'cover.close_cover' if invert else 'cover.open_cover' }}"
+  retract_cmd: "{{ 'cover.open_cover' if invert else 'cover.close_cover' }}"
+  half_secs: !input halfway_seconds
+  full_helper: !input full_helper
+  half_helper: !input half_helper
+  prompted_helper: !input prompted_helper
+  notify_toggle: !input notify_toggle
+  notify_service: !input notify_service
+  response_secs: !input response_seconds
+  timeout_choice: !input timeout_action
+  muted_choice: !input muted_action
+  sunset_close: !input close_at_sunset
+  wind_entity: !input wind_sensor
+  wind_max: !input wind_limit
+  gust_entity: !input gust_sensor
+  gust_max: !input gust_limit
+  rain_entity: !input rain_sensor
+  rain_max: !input rain_limit
+  awning_out: "{{ is_state(full_helper, 'on') or is_state(half_helper, 'on') }}"
+  notify_on: "{{ is_state(notify_toggle, 'on') }}"
+  reasons:
+    wind: Wind speed is closing the awning
+    gust: A wind gust is closing the awning
+    rain: Heavy rain is closing the awning
+
+actions:
+  - choose:
+      # Safety: wind, gust, heavy rain
+      - alias: Safety close
+        conditions:
+          - condition: trigger
+            id: [wind, gust, rain]
+          - "{{ awning_out }}"
+        sequence:
+          - action: "{{ retract_cmd }}"
+            target:
+              entity_id: "{{ cover_entity }}"
+          - action: input_boolean.turn_off
+            target:
+              entity_id: ["{{ full_helper }}", "{{ half_helper }}"]
+          - if: "{{ notify_on }}"
+            then:
+              - action: "{{ notify_service }}"
+                data:
+                  title: Awning
+                  message: "{{ reasons[trigger.id] }}"
+                  data:
+                    tag: awning_status
+
+      - alias: Sunset close
+        conditions:
+          - condition: trigger
+            id: sunset
+          - "{{ sunset_close and awning_out }}"
+        sequence:
+          - action: "{{ retract_cmd }}"
+            target:
+              entity_id: "{{ cover_entity }}"
+          - action: input_boolean.turn_off
+            target:
+              entity_id: ["{{ full_helper }}", "{{ half_helper }}"]
+
+      - alias: Retracted elsewhere
+        conditions:
+          - condition: trigger
+            id: retracted
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: ["{{ full_helper }}", "{{ half_helper }}"]
+
+      - alias: Midnight reset
+        conditions:
+          - condition: trigger
+            id: midnight
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: "{{ prompted_helper }}"
+
+      # Sun prompt
+      - alias: Sun prompt
+        conditions:
+          - condition: trigger
+            id: sun
+          - "{{ not awning_out }}"
+          - "{{ is_state(prompted_helper, 'off') }}"
+          - "{{ states(wind_entity) | float(0) <= wind_max }}"
+          - "{{ states(gust_entity) | float(0) <= gust_max }}"
+          - "{{ states(rain_entity) | float(0) <= rain_max }}"
+          - and: !input extra_conditions
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: "{{ prompted_helper }}"
+          - variables:
+              act_full: "{{ 'AWNING_FULL_' ~ context.id }}"
+              act_half: "{{ 'AWNING_HALF_' ~ context.id }}"
+              act_none: "{{ 'AWNING_NONE_' ~ context.id }}"
+          - if: "{{ notify_on }}"
+            then:
+              - action: "{{ notify_service }}"
+                data:
+                  title: Awning
+                  message: Sun is starting to hit the balcony. Open the awning?
+                  data:
+                    tag: awning_prompt
+                    actions:
+                      - action: "{{ act_full }}"
+                        title: Open fully
+                      - action: "{{ act_half }}"
+                        title: Open halfway
+                      - action: "{{ act_none }}"
+                        title: Keep closed
+              - wait_for_trigger:
+                  - trigger: event
+                    event_type: mobile_app_notification_action
+                    event_data:
+                      action: "{{ act_full }}"
+                  - trigger: event
+                    event_type: mobile_app_notification_action
+                    event_data:
+                      action: "{{ act_half }}"
+                  - trigger: event
+                    event_type: mobile_app_notification_action
+                    event_data:
+                      action: "{{ act_none }}"
+                timeout:
+                  seconds: "{{ response_secs }}"
+                continue_on_timeout: true
+          - variables:
+              answer: >-
+                {{ wait.trigger.event.data.action
+                   if notify_on and wait is defined and wait.trigger else '' }}
+              answered: "{{ answer != '' }}"
+              choice: >-
+                {% if not notify_on %}{{ muted_choice }}
+                {% elif answer == act_full %}full
+                {% elif answer == act_half %}half
+                {% elif answer == act_none %}none
+                {% else %}{{ timeout_choice }}{% endif %}
+          - choose:
+              - conditions: "{{ choice == 'none' }}"
+                sequence:
+                  - if: "{{ notify_on }}"
+                    then:
+                      - action: "{{ notify_service }}"
+                        data:
+                          message: clear_notification
+                          data:
+                            tag: awning_prompt
+            default:
+              # Re-check: wind or rain may have arrived during the wait,
+              # or the awning may have been opened another way.
+              - if:
+                  - "{{ is_state(full_helper, 'off') and is_state(half_helper, 'off') }}"
+                  - "{{ states(wind_entity) | float(0) <= wind_max }}"
+                  - "{{ states(gust_entity) | float(0) <= gust_max }}"
+                  - "{{ states(rain_entity) | float(0) <= rain_max }}"
+                then:
+                  - action: "{{ extend_cmd }}"
+                    target:
+                      entity_id: "{{ cover_entity }}"
+                  - if: "{{ choice == 'half' }}"
+                    then:
+                      - delay:
+                          seconds: "{{ half_secs }}"
+                      - action: cover.stop_cover
+                        target:
+                          entity_id: "{{ cover_entity }}"
+                      - action: input_boolean.turn_on
+                        target:
+                          entity_id: "{{ half_helper }}"
+                      - action: input_boolean.turn_off
+                        target:
+                          entity_id: "{{ full_helper }}"
+                    else:
+                      - action: input_boolean.turn_on
+                        target:
+                          entity_id: "{{ full_helper }}"
+                      - action: input_boolean.turn_off
+                        target:
+                          entity_id: "{{ half_helper }}"
+                  - if: "{{ notify_on }}"
+                    then:
+                      - action: "{{ notify_service }}"
+                        data:
+                          title: Awning
+                          message: >-
+                            {{ 'Opening' if answered else 'No response, so opening' }}
+                            {{ 'fully' if choice == 'full' else 'halfway' }}
+                          data:
+                            tag: awning_prompt
+                else:
+                  - if: "{{ notify_on }}"
+                    then:
+                      - action: "{{ notify_service }}"
+                        data:
+                          title: Awning
+                          message: Not opening, wind or rain picked up (or it's already out)
+                          data:
+                            tag: awning_prompt
